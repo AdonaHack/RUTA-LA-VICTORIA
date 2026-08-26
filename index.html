@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruta Óptima NAPs - Gamarra, La Victoria</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            background-color: #f4f7f6;
+        }
+
+        #sidebar {
+            width: 440px;
+            background: #ffffff;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        #header {
+            padding: 20px;
+            background: #1e293b;
+            color: white;
+        }
+
+            #header h1 {
+                margin: 0 0 5px 0;
+                font-size: 18px;
+            }
+
+            #header p {
+                margin: 0;
+                font-size: 12px;
+                color: #94a3b8;
+            }
+
+        .route-summary {
+            background: #0f172a;
+            padding: 12px 20px;
+            color: #cbd5e1;
+            font-size: 12px;
+            border-bottom: 2px solid #3b82f6;
+        }
+
+            .route-summary b {
+                color: #fff;
+            }
+
+        #list-container {
+            overflow-y: auto;
+            flex: 1;
+            padding: 15px;
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 15px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+            .card.start-point {
+                border-left: 5px solid #10b981;
+            }
+
+            .card:hover {
+                border-color: #3b82f6;
+                box-shadow: 0 4px 6px rgba(59,130,246,0.1);
+                transform: translateY(-2px);
+            }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .badge {
+            background: #3b82f6;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .badge-start {
+            background: #10b981 !important;
+        }
+
+        .card p {
+            margin: 3px 0;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .stats {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 11px;
+            background: #f8fafc;
+            padding: 6px;
+            border-radius: 6px;
+        }
+
+        .stat-item {
+            flex: 1;
+            text-align: center;
+        }
+
+        .stat-val {
+            font-weight: bold;
+            color: #0f172a;
+        }
+
+        .card-floors {
+            background: #f1f5f9;
+            padding: 6px 8px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #334155;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+
+        .custom-popup {
+            font-size: 13px;
+        }
+
+            .custom-popup h3 {
+                margin: 0 0 5px 0;
+                color: #1e293b;
+                font-size: 15px;
+            }
+
+            .custom-popup p {
+                margin: 3px 0;
+                color: #475569;
+            }
+
+        .floors-box {
+            background: #f1f5f9;
+            padding: 6px;
+            border-radius: 4px;
+            margin-top: 6px;
+            font-size: 12px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .loading-state {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div id="header">
+            <h1>Ruta Óptima de NAPs</h1>
+            <p>Secuencia Operativa en Gamarra, La Victoria</p>
+        </div>
+        <div class="route-summary" id="summary-box">
+            🔄 <b>Cargando datos desde Google Sheets...</b>
+        </div>
+        <div id="list-container">
+            <div class="loading-state">Conectando con la hoja publicada...</div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+                // @ts-nocheck
+                const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTRJ2GZve6yeoTRuF8GmJQ2jCUHNmrCWtcqXmwtpe3jVi2nNmOGgO9lY2KNuQ0G2cKOuC32oVvLGGk3/pub?output=csv";
+
+                const laVictoriaBounds = L.latLngBounds(
+                    [-12.0780, -77.0380],
+                    [-12.0520, -77.0080]
+                );
+
+                const map = L.map('map', {
+                    maxBounds: laVictoriaBounds,
+                    maxBoundsViscosity: 0.9,
+                    minZoom: 15,
+                    maxZoom: 19
+                }).setView([-12.064808, -77.013829], 16);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+
+                const coorsEdificios = {
+                    "CENTRO COMERCIAL GUIZADO HERMANO GAMARRA": { lat: -12.064808, lon: -77.013829, dist: 0.0 },
+                    "CENTRO COMERCIAL HIPOLITO UNANUE SHOPPING CENTER": { lat: -12.065134, lon: -77.014032, dist: 42.3 },
+                    "GALERIA LEO": { lat: -12.065510, lon: -77.013840, dist: 77.9 },
+                    "GALERIA HIERBA SANTA": { lat: -12.064612, lon: -77.012875, dist: 105.8 },
+                    "GALERIA SANTA LUCIA": { lat: -12.065835, lon: -77.013519, dist: 118.8 },
+                    "GALERIA HIERBA SANTA 1": { lat: -12.064290, lon: -77.012770, dist: 128.6 },
+                    "GALERIA EL MARQUES": { lat: -12.066157, lon: -77.014400, dist: 162.1 },
+                    "GALERIA SAN MIGUEL": { lat: -12.066471, lon: -77.014724, dist: 208.7 },
+                    "GALERIA LOS CONFECCIONISTAS": { lat: -12.066690, lon: -77.012975, dist: 228.6 },
+                    "CENTRO COMERCIAL GOLDEN PLAZA": { lat: -12.063020, lon: -77.014883, dist: 229.1 },
+                    "GALERIA EL JEAN": { lat: -12.062050, lon: -77.013620, dist: 307.0 },
+                    "CENTRO COMERCIAL GUIZADO HERMANOS 28 DE JULIO": { lat: -12.061754, lon: -77.015828, dist: 402.5 },
+                    "GALERIA INDUSTRIAL SAN PEDRO": { lat: -12.070030, lon: -77.013006, dist: 586.5 },
+                    "CENTRO COMERCIAL IQUITOS GRAU": { lat: -12.059781, lon: -77.031645, dist: 2012.8 }
+                };
+
+                Papa.parse(SHEET_CSV_URL, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        procesarDatosSheet(results.data);
+                    },
+                    error: function(err) {
+                        const container = document.getElementById('list-container');
+                        if (container) {
+                            container.innerHTML = '<div class="loading-state" style="color:red;">Error al conectar con la hoja publicada.</div>';
+                        }
+                    }
+                });
+
+                function procesarDatosSheet(rows) {
+                    const agrupado = {};
+
+                    rows.forEach((row) => {
+                        let r = row;
+                        let edificio = (r["EDIFICIO"] || "").trim().toUpperCase();
+                        let direccion = (r["DIRECCION"] || "").trim();
+                        let piso = (r["PISO"] || "").trim() || "S/N";
+                        let napName = (r["NAP"] || "").trim();
+
+                        // Lectura directa de los valores numéricos de tus columnas de Google Sheets
+                        let totalPorts = parseInt(r["TOTAL PUERTOS"] || r["TOTAL PUERTO"] || "0", 10) || 0;
+                        let occPorts = parseInt(r["PUERTOS OCUPADOS"] || r["PUERTOS OCUPAD"] || "0", 10) || 0;
+                        let freePorts = parseInt(r["PUERTOS LIBRE"] || r["PUERTOS LIBRES"] || "0", 10) || 0;
+
+                        if (!edificio) return;
+
+                        if (!agrupado[edificio]) {
+                            agrupado[edificio] = {
+                                name: edificio,
+                                address: direccion,
+                                total_ports: 0,
+                                free_ports: 0,
+                                occ_ports: 0,
+                                floorsMap: {}
+                            };
+                        }
+
+                        let item = agrupado[edificio];
+                        item.total_ports += totalPorts;
+                        item.free_ports += freePorts;
+                        item.occ_ports += occPorts;
+
+                        if (!item.floorsMap[piso]) {
+                            item.floorsMap[piso] = { total: 0, free: 0, occ: 0, naps: new Set() };
+                        }
+                        item.floorsMap[piso].total += totalPorts;
+                        item.floorsMap[piso].free += freePorts;
+                        item.floorsMap[piso].occ += occPorts;
+
+                        if (napName) {
+                            item.floorsMap[piso].naps.add(napName);
+                        }
+                    });
+
+                    let locationsArray = Object.keys(agrupado).map((key) => {
+                        let data = agrupado[key];
+                        let coords = coorsEdificios[key] || { lat: -12.0648, lon: -77.0138, dist: 999 };
+
+                        let floorsHtml = Object.keys(data.floorsMap).map((p) => {
+                            let fData = data.floorsMap[p];
+                            return `Piso ${p}: ${fData.total} Puertos (Libres: <span style="color:#16a34a; font-weight:bold;">${fData.free}</span>, Ocupados: <span style="color:#dc2626; font-weight:bold;">${fData.occ}</span>)`;
+                        }).join("<br>");
+
+                        let totalNapsCount = 0;
+                        Object.keys(data.floorsMap).forEach(p => {
+                            totalNapsCount += data.floorsMap[p].naps.size;
+                        });
+                        if (totalNapsCount === 0) totalNapsCount = 1;
+
+                        return {
+                            name: data.name,
+                            address: data.address || "La Victoria, Lima",
+                            lat: coords.lat,
+                            lon: coords.lon,
+                            total_naps: totalNapsCount,
+                            total_ports: data.total_ports,
+                            free_ports: data.free_ports,
+                            occ_ports: data.occ_ports,
+                            dist: coords.dist,
+                            floors: floorsHtml || "Distribución general",
+                            order: 0
+                        };
+                    });
+
+                    locationsArray.sort((a, b) => a.dist - b.dist);
+
+                    locationsArray = locationsArray.map((loc, index) => {
+                        loc.order = index + 1;
+                        return loc;
+                    });
+
+                    renderizarMapaYLista(locationsArray);
+                }
+
+                function renderizarMapaYLista(locations) {
+                    const listContainer = document.getElementById('list-container');
+                    if (!listContainer) return;
+                    listContainer.innerHTML = '';
+
+                    const summaryBox = document.getElementById('summary-box');
+                    if (summaryBox) {
+                        summaryBox.innerHTML = `
+                            🟢 <b>INICIO / FIN:</b> ${locations[0] ? locations[0].name : 'Gamarra'}<br>
+                            🔄 <b>Secuencia:</b> ${locations.length} Galerías ordenadas por proximidad.
+                        `;
+                    }
+
+                    const latLngs = locations.map((loc) => [loc.lat, loc.lon]);
+                    if (locations.length > 0) latLngs.push([locations[0].lat, locations[0].lon]);
+
+                    L.polyline(latLngs, {
+                        color: '#2563eb',
+                        weight: 5,
+                        opacity: 0.8,
+                        dashArray: '8, 8'
+                    }).addTo(map);
+
+                    locations.forEach((loc) => {
+                        const isStart = (loc.order === 1);
+
+                        const markerHtml = `
+                            <div style="
+                                background-color: ${isStart ? '#10b981' : '#3b82f6'};
+                                color: white;
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 50%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-weight: bold;
+                                font-size: 12px;
+                                border: 2px solid white;
+                                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                            ">
+                                ${isStart ? '⭐' : loc.order}
+                            </div>
+                        `;
+
+                        const customIcon = L.divIcon({
+                            html: markerHtml,
+                            className: '',
+                            iconSize: [28, 28],
+                            iconAnchor: [14, 14]
+                        });
+
+                        const marker = L.marker([loc.lat, loc.lon], { icon: customIcon }).addTo(map);
+
+                        let popupContent = `
+                            <div class="custom-popup">
+                                <h3><b>${isStart ? '🟢 [INICIO / FIN] ' : ''}#${loc.order} - ${loc.name}</b></h3>
+                                <p><b>Dirección:</b> ${loc.address}</p>
+                                <p><b>Distancia:</b> ${loc.dist} m</p>
+                                <hr style="margin: 5px 0; border:0; border-top:1px solid #cbd5e1;">
+                                <p><b>Total NAPs:</b> ${loc.total_naps}</p>
+                                <p><b>Puertos Libres / Totales:</b> <span style="color: #16a34a; font-weight: bold;">${loc.free_ports}</span> / ${loc.total_ports}</p>
+                                <p><b>Puertos Ocupados:</b> <span style="color: #dc2626; font-weight: bold;">${loc.occ_ports}</span></p>
+                                <div class="floors-box">
+                                    <b>Disponibilidad por Piso:</b><br>
+                                    ${loc.floors}
+                                </div>
+                            </div>
+                        `;
+
+                        marker.bindPopup(popupContent);
+
+                        const card = document.createElement('div');
+                        card.className = `card ${isStart ? 'start-point' : ''}`;
+                        card.innerHTML = `
+                            <div class="card-header">
+                                <span><b>#${loc.order} - ${loc.name}</b></span>
+                                <span class="badge ${isStart ? 'badge-start' : ''}">${isStart ? 'INICIO/FIN' : loc.dist + ' m'}</span>
+                            </div>
+                            <p>📍 ${loc.address}</p>
+                            <div class="stats">
+                                <div class="stat-item">NAPs: <span class="stat-val">${loc.total_naps}</span></div>
+                                <div class="stat-item">Libres: <span class="stat-val" style="color:#16a34a;">${loc.free_ports}</span></div>
+                                <div class="stat-item">Ocupados: <span class="stat-val" style="color:#dc2626;">${loc.occ_ports}</span></div>
+                            </div>
+                            <div class="card-floors">
+                                <b>Por Piso:</b><br>${loc.floors}
+                            </div>
+                        `;
+
+                        card.addEventListener('click', () => {
+                            map.setView([loc.lat, loc.lon], 18);
+                            marker.openPopup();
+                        });
+
+                        card.addEventListener('mouseenter', () => {
+                            marker.openPopup();
+                        });
+
+                        listContainer.appendChild(card);
+                    });
+
+                    map.fitBounds(laVictoriaBounds, { padding: [30, 30] });
+                }
+    </script>
+</body>
+</html>
